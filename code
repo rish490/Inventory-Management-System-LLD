@@ -1,0 +1,254 @@
+#include <iostream>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+#include <memory>
+using namespace std;
+
+// ---------------------------
+// Product Class
+// ---------------------------
+class Product {
+    int id;
+    string name;
+    string category;
+
+public:
+    Product(int id, string name, string category) 
+        : id(id), name(name), category(category) {}
+
+    int getId() const { return id; }
+    string getName() const { return name; }
+    string getCategory() const { return category; }
+};
+
+// ---------------------------
+// Warehouse Class
+// ---------------------------
+class Warehouse {
+    int id;
+    string location;
+
+public:
+    Warehouse(int id, string location) 
+        : id(id), location(location) {}
+
+    int getId() const { return id; }
+    string getLocation() const { return location; }
+};
+
+// ---------------------------
+// WarehouseProduct Association
+// ---------------------------
+class WarehouseProduct {
+    int warehouseId;
+    int productId;
+    int quantity;
+
+public:
+    WarehouseProduct(int wId, int pId, int qty = 0) 
+        : warehouseId(wId), productId(pId), quantity(qty) {}
+
+    int getWarehouseId() const { return warehouseId; }
+    int getProductId() const { return productId; }
+    int getQuantity() const { return quantity; }
+
+    void addStock(int qty) { quantity += qty; }
+    bool removeStock(int qty) { 
+        if (qty > quantity) return false;
+        quantity -= qty; 
+        return true;
+    }
+};
+
+// ---------------------------
+// WarehouseProductMgr
+// ---------------------------
+class WarehouseProductMgr {
+    // key = (warehouseId, productId) → stock object
+    unordered_map<string, WarehouseProduct> wpMap;
+
+    string makeKey(int wId, int pId) {
+        return to_string(wId) + "-" + to_string(pId);
+    }
+
+public:
+    void addStock(int wId, int pId, int qty) {
+        string key = makeKey(wId, pId);
+        if (wpMap.find(key) == wpMap.end()) {
+            wpMap[key] = WarehouseProduct(wId, pId, 0);
+        }
+        wpMap[key].addStock(qty);
+    }
+
+    bool removeStock(int wId, int pId, int qty) {
+        string key = makeKey(wId, pId);
+        if (wpMap.find(key) == wpMap.end()) return false;
+        return wpMap[key].removeStock(qty);
+    }
+
+    bool transferStock(int fromW, int toW, int pId, int qty) {
+        string fromKey = makeKey(fromW, pId);
+        if (wpMap.find(fromKey) == wpMap.end()) return false;
+        if (!wpMap[fromKey].removeStock(qty)) return false;
+
+        addStock(toW, pId, qty);
+        return true;
+    }
+
+    int getTotalStock(int pId) {
+        int total = 0;
+        for (auto &it : wpMap) {
+            if (it.second.getProductId() == pId) {
+                total += it.second.getQuantity();
+            }
+        }
+        return total;
+    }
+
+    vector<int> getWarehousesWithProduct(int pId) {
+        vector<int> warehouses;
+        for (auto &it : wpMap) {
+            if (it.second.getProductId() == pId && it.second.getQuantity() > 0) {
+                warehouses.push_back(it.second.getWarehouseId());
+            }
+        }
+        return warehouses;
+    }
+};
+
+// ---------------------------
+// InventoryMgr
+// ---------------------------
+class InventoryMgr {
+    unordered_map<int, shared_ptr<Product>> products;
+
+public:
+    void addProduct(int id, string name, string category) {
+        products[id] = make_shared<Product>(id, name, category);
+    }
+
+    void removeProduct(int id) {
+        products.erase(id);
+    }
+
+    shared_ptr<Product> getProduct(int id) {
+        return products.count(id) ? products[id] : nullptr;
+    }
+};
+
+// ---------------------------
+// WarehouseMgr
+// ---------------------------
+class WarehouseMgr {
+    unordered_map<int, shared_ptr<Warehouse>> warehouses;
+
+public:
+    void addWarehouse(int id, string location) {
+        warehouses[id] = make_shared<Warehouse>(id, location);
+    }
+
+    void removeWarehouse(int id) {
+        warehouses.erase(id);
+    }
+
+    shared_ptr<Warehouse> getWarehouse(int id) {
+        return warehouses.count(id) ? warehouses[id] : nullptr;
+    }
+};
+
+// ---------------------------
+// InventoryManagementSystem (Facade)
+// ---------------------------
+class InventoryManagementSystem {
+    InventoryMgr inventoryMgr;
+    WarehouseMgr warehouseMgr;
+    WarehouseProductMgr warehouseProductMgr;
+
+public:
+    // Product Operations
+    void addProduct(int id, string name, string category) {
+        inventoryMgr.addProduct(id, name, category);
+    }
+
+    void removeProduct(int id) {
+        inventoryMgr.removeProduct(id);
+        // also remove from warehouse associations if needed
+        // TODO: implement cleanup in WarehouseProductMgr if required
+    }
+
+    // Warehouse Operations
+    void addWarehouse(int id, string location) {
+        warehouseMgr.addWarehouse(id, location);
+    }
+
+    void removeWarehouse(int id) {
+        warehouseMgr.removeWarehouse(id);
+        // also remove warehouse-product mappings if needed
+        // TODO: implement cleanup
+    }
+
+    // Stock Operations
+    void addStock(int wId, int pId, int qty) {
+        warehouseProductMgr.addStock(wId, pId, qty);
+    }
+
+    void removeStock(int wId, int pId, int qty) {
+        if (!warehouseProductMgr.removeStock(wId, pId, qty)) {
+            cout << "Not enough stock to remove!\n";
+        }
+    }
+
+    void transferStock(int fromW, int toW, int pId, int qty) {
+        if (!warehouseProductMgr.transferStock(fromW, toW, pId, qty)) {
+            cout << "Transfer failed due to insufficient stock!\n";
+        }
+    }
+
+    // Reports
+    void getTotalInventory(int pId) {
+        cout << "Total stock for product " << pId 
+             << " = " << warehouseProductMgr.getTotalStock(pId) << "\n";
+    }
+
+    void listWarehousesForProduct(int pId) {
+        auto whs = warehouseProductMgr.getWarehousesWithProduct(pId);
+        cout << "Product " << pId << " is available in warehouses: ";
+        for (int w : whs) cout << w << " ";
+        cout << "\n";
+    }
+};
+
+// ---------------------------
+// Demo
+// ---------------------------
+int main() {
+    InventoryManagementSystem ims;
+
+    // Add Products
+    ims.addProduct(1, "Laptop", "Electronics");
+    ims.addProduct(2, "Charger", "Electronics");
+
+    // Add Warehouses
+    ims.addWarehouse(101, "Delhi");
+    ims.addWarehouse(102, "Bangalore");
+
+    // Add Stock
+    ims.addStock(101, 1, 50);  // 50 Laptops in Delhi
+    ims.addStock(102, 1, 30);  // 30 Laptops in Bangalore
+    ims.addStock(102, 2, 100); // 100 Chargers in Bangalore
+
+    ims.getTotalInventory(1);  // total laptops
+    ims.listWarehousesForProduct(1);
+
+    // Transfer Stock
+    ims.transferStock(102, 101, 1, 10); // move 10 laptops from BLR to Delhi
+    ims.getTotalInventory(1);
+
+    // Remove Stock
+    ims.removeStock(101, 1, 70); // invalid removal
+    ims.removeStock(101, 1, 20); // valid removal
+
+    ims.getTotalInventory(1);
+}
